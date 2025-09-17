@@ -1,0 +1,234 @@
+#include "P16f887.inc"
+
+__CONFIG _CONFIG1, (_CP_OFF & _WDT_OFF & _PWRTE_ON & _INTOSC & _LVP_OFF)
+__CONFIG _CONFIG2, _BOR21V
+
+; Registros
+cblock 0x20
+    ADCValueH       ; parte alta del ADC (ADRESH)
+    ADCValueL       ; parte baja del ADC (ADRESL)
+    ValorADC        ; valor ADC convertido (0-999)
+    Centena
+    Decena
+    Unidad
+    ContadorMux     ; multiplexor de dígito
+    Temp
+    Temp2
+    d1
+    d2
+    d3
+endc
+
+; Inicio
+ORG 0x00
+goto Inicio
+
+; Rutina Principal
+Inicio:
+    ; Configuración de puertos
+    bsf STATUS, RP0      ; Banco 1
+    movlw b'00000001'    ; RA0 como entrada analógica (AN0)
+    movwf TRISA
+    clrf TRISB           ; Puerto B como salida (segmentos)
+    movlw b'11111000'    ; RC0-RC2 como salida (control displays)
+    movwf TRISC
+    bcf STATUS, RP0      ; Volver al banco 0
+
+    ; Configurar ADC para canal AN0 (RA0)
+    movlw b'00000001'    ; Fosc/8, canal AN0, ADC ON (bit 0-2: 001 = AN0)
+    movwf ADCON0
+    bsf STATUS, RP0
+    movlw b'00000000'    ; RA0 analógico, demás digitales
+    movwf ADCON1
+    bcf STATUS, RP0
+
+    clrf PORTB
+    clrf PORTC
+    clrf ContadorMux
+
+MainLoop:
+    ; Iniciar conversión ADC en canal AN0 (RA0)
+    bsf ADCON0, 1        ; Iniciar conversión (bit GO/DONE)
+EsperaADC:
+    btfsc ADCON0, 1      ; Esperar que termine la conversión
+    goto EsperaADC
+
+    ; Leer resultado ADC de 10 bits (0-1023)
+    movf ADRESH, W
+    movwf ValorADC
+;    movf ADRESL, W
+;    movwf ADCValueL
+
+    ; Convertir valor ADC (0-1023) a 0-999
+    ;call ConvertirADCa999
+
+    ; Descomponer en centenas, decenas, unidades
+    call SepararDigitos
+
+    ; Multiplexar displays
+    call MuxDisplay
+
+    goto MainLoop
+
+; Convertir valor ADC (0-1023) a rango 0-999
+ConvertirADCa999:
+    ; Usar los 10 bits del ADC (ADCValueH:ADCValueL)
+    ; Método: (ADCValue * 999) / 1023
+    ; Simplificado: ADCValue * 0.976 ˜ (ADCValue * 25) / 256
+    
+    ; Cargar valor ADC (10 bits) en Temp:Temp2
+    movf ADCValueH, W
+    movwf Temp
+;    movf ADCValueL, W
+;    movwf Temp2
+;    
+;    ; Multiplicar por 25 (aproximación)
+;    movlw .25
+;    call Multiplicar16x8
+;    
+;    ; El resultado está en Temp:Temp2 (16 bits)
+;    ; Dividir entre 256 (tomar el byte alto)
+;    movf Temp, W
+;    movwf ValorADC
+;    
+;    ; Asegurar que no exceda 999
+;    movlw .1000
+;    subwf ValorADC, W
+;    btfss STATUS, C
+;    return
+;    movlw .999
+;    movwf ValorADC
+;    return
+;
+;; Multiplicación simple de 16x8 bits
+;Multiplicar16x8:
+;    movwf Temp2
+;    clrf Temp
+;    clrf ValorADC
+;    
+;MultiplicarLoop:
+;    movf ADCValueL, W
+;    addwf ValorADC, F
+;    btfsc STATUS, C
+;    incf Temp, F
+;    
+;    movf ADCValueH, W
+;    addwf Temp, F
+;    
+;    decfsz Temp2, F
+;    goto MultiplicarLoop
+;    return
+;
+;; Separar dígitos (0-999) en centenas, decenas, unidades
+SepararDigitos:
+    movf ValorADC, W
+    movwf Temp
+    
+    ; Calcular centenas
+    clrf Centena
+CalcularCentenas:
+    movlw .100
+    subwf Temp, F
+    btfss STATUS, C
+    goto FinCentenas
+    incf Centena, F
+    goto CalcularCentenas
+FinCentenas:
+    movlw .100
+    addwf Temp, F       ; Restaurar último valor
+    
+    ; Calcular decenas
+    clrf Decena
+CalcularDecenas:
+    movlw .10
+    subwf Temp, F
+    btfss STATUS, C
+    goto FinDecenas
+    incf Decena, F
+    goto CalcularDecenas
+FinDecenas:
+    movlw .10
+    addwf Temp, F       ; Restaurar último valor
+    
+    ; Unidades
+    movf Temp, W
+    movwf Unidad
+    return
+
+; Multiplexado de 3 displays
+MuxDisplay:
+    ; Apagar todos los displays primero
+    movlw b'00000111'
+    andwf PORTC, F
+    
+    movf ContadorMux, W
+    andlw 0x03
+    addwf PCL, F
+    
+    goto Mux0        ; Unidad
+    goto Mux1        ; Decena
+    goto Mux2        ; Centena
+    goto ResetMux
+
+Mux0:
+    movf Unidad, W
+    call Tabla7Seg
+    movwf PORTB      ; Segmentos para unidades
+    bsf PORTC, 0     ; Activar transistor display unidades (RC0)
+    incf ContadorMux, F
+    call DelayMux
+	bcf PORTC,0
+    return
+
+Mux1:
+    movf Decena, W
+    call Tabla7Seg
+    movwf PORTB      ; Segmentos para decenas
+    bsf PORTC, 1     ; Activar transistor display decenas (RC1)
+    incf ContadorMux, F
+    call DelayMux
+	bcf PORTC,1
+    return
+
+Mux2:
+    movf Centena, W
+    call Tabla7Seg
+    movwf PORTB      ; Segmentos para centenas
+    bsf PORTC, 2     ; Activar transistor display centenas (RC2)
+    incf ContadorMux, F
+    call DelayMux
+	bcf PORTC,2
+    return
+
+ResetMux:
+    clrf ContadorMux
+    return
+
+; Retardo para multiplexado (ajustable)
+DelayMux:
+    movlw .100
+    movwf d1
+DelayLoop1:
+    movlw .200
+    movwf d2
+DelayLoop2:
+    decfsz d2, F
+    goto DelayLoop2
+    decfsz d1, F
+    goto DelayLoop1
+    return
+
+; Tabla de 7 segmentos (cátodo común)
+Tabla7Seg:
+addwf PCL, F
+retlw b'00111111'
+retlw b'00000110'
+retlw b'01011011'
+retlw b'01001111'
+retlw b'01100110'
+retlw b'01101101'
+retlw b'01111101'
+retlw b'00000111'
+retlw b'01111111'
+retlw b'01101111'
+END
