@@ -1,0 +1,109 @@
+#include "P16F887.inc"
+
+    __CONFIG _CONFIG1, ( _CP_OFF & _WDT_OFF & _PWRTE_ON & _INTOSC & _LVP_OFF )
+    __CONFIG _CONFIG2, _BOR21V
+
+    cblock 0x20
+        valorH      ; ADRESH
+        valorL      ; ADRESL
+        cnt         ; contador para pequeño delay
+    endc
+
+    org 0x00
+    goto inicio
+
+inicio:
+    BANKSEL ANSEL
+    clrf ANSEL
+    clrf ANSELH
+    bsf ANSEL, 0
+
+    BANKSEL CM1CON0
+    clrf CM1CON0
+    clrf CM2CON0
+
+    BANKSEL TRISA
+    bsf TRISA, 0
+
+    BANKSEL TRISB
+    bcf TRISB, 0
+
+    BANKSEL PORTB
+    bcf PORTB, 0
+
+    BANKSEL ADCON1
+    movlw b'10000000'
+    movwf ADCON1
+
+    BANKSEL ADCON0
+    movlw b'01000001'
+    movwf ADCON0
+
+loop:
+    call delay_10us
+
+    BANKSEL ADCON0
+    bsf ADCON0, GO_DONE
+
+adc_wait:
+    btfsc ADCON0, GO_DONE
+    goto adc_wait
+
+    BANKSEL ADRESH
+    movf ADRESH, W
+    movwf valorH
+    movf ADRESL, W
+    movwf valorL
+
+    movf valorH, W
+    sublw 0x01
+    btfss STATUS, C
+    goto led_off
+
+led_on:
+    BANKSEL PORTB
+    bsf PORTB, 0
+    goto loop
+
+led_off:
+    BANKSEL PORTB
+    bcf PORTB, 0
+    goto loop
+
+;----------------------------
+; Rutina de retardo ~10 us
+;----------------------------
+delay_10us:
+    BANKSEL cnt
+    movlw .10
+    movwf cnt
+dly1:
+    nop
+    decfsz cnt, f
+    goto dly1
+    return
+
+    END
+
+goto led_off
+
+led_on:
+BANKSEL PORTB
+bsf PORTB, 0
+goto loop
+
+led_off:
+BANKSEL PORTB
+bcf PORTB, 0
+goto loop
+
+delay_10us:
+BANKSEL cnt
+movlw .10
+movwf cnt
+dly1:
+nop
+decfsz cnt, f
+goto dly1
+return
+END
