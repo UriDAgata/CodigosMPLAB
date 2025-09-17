@@ -1,0 +1,17 @@
+include "P16F887.inc"
+
+        __CONFIG _CONFIG1, ( _CP_OFF & _MCLRE_OFF & _PWRTE_ON & _INTOSC & _LVP_OFF )
+        __CONFIG _CONFIG2, _BOR21V
+
+        ORG 0x00
+
+        BANKSEL TRISC
+        CLRF TRISC
+        BANKSEL PORTC
+
+MAIN
+        BSF PORTC,0
+        BCF PORTC,0
+        GOTO MAIN
+
+        END
