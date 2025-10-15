@@ -1,0 +1,279 @@
+#include "P16F887.inc"
+
+__CONFIG _CONFIG1, _FOSC_INTRC_NOCLKOUT & _WDTE_OFF & _PWRTE_OFF & _MCLRE_ON & _CP_OFF & _CPD_OFF & _BOREN_ON & _IESO_ON & _FCMEN_ON & _LVP_OFF
+__CONFIG _CONFIG2, _BOR4V_BOR40V & _WRT_OFF
+
+cblock 0x20
+    valor_adc
+    centena
+    decena
+    unidad
+    temp
+    counter1
+    counter2
+    counter3
+    lcd_dato
+endc
+
+
+#define LCD_RS PORTC,0
+#define LCD_E  PORTC,2
+#define LCD_PORT PORTD
+
+
+org 0x00
+    goto INICIO
+
+
+INICIO:
+    
+    banksel OSCCON
+    movlw b'01110000'  ; Frecuencia 8MHz
+    movwf OSCCON
+    
+    ; Configurar puertos
+    banksel TRISA
+    movlw b'00000001'  
+    movwf TRISA
+    clrf TRISB
+    movlw b'11111000'  
+    movwf TRISC
+    clrf TRISD         
+    
+    ; Configurar ADC
+    movlw b'00000000'  
+    movwf ADCON1
+    banksel ADCON0
+    movlw b'10000001'  
+    movwf ADCON0
+    call RETARDO_20us  
+    
+    ; Inicializar LCD
+    call LCD_INIT
+    
+    ; Mensaje inicial
+    movlw 'J'
+    call LCD_CHAR
+    movlw 'I'
+    call LCD_CHAR
+    movlw 'J'
+    call LCD_CHAR
+    movlw 'O'
+    call LCD_CHAR
+    movlw 'L'
+    call LCD_CHAR
+    movlw 'A'
+    call LCD_CHAR
+    movlw 'N'
+    call LCD_CHAR
+    movlw 'D'
+    call LCD_CHAR
+    movlw 'I'
+    call LCD_CHAR
+    movlw 'A'
+    call LCD_CHAR
+	movlw ' '
+    call LCD_CHAR
+	movlw 'A'
+    call LCD_CHAR
+	movlw 'D'
+    call LCD_CHAR
+	movlw 'C'
+    call LCD_CHAR
+	movlw ':'
+    call LCD_CHAR
+    
+    ; Mover a segunda línea
+    movlw 0xC0
+    call LCD_CMD
+
+; LOOP PRINCIPAL
+MAIN_LOOP:
+    ; Leer ADC
+    bsf ADCON0, GO_DONE
+ADC_ESPERA:
+    btfsc ADCON0, GO_DONE
+    goto ADC_ESPERA
+    
+    ; Obtener valor (0-255)
+    movf ADRESH, W
+    movwf valor_adc
+    
+    ; Convertir a decimal
+    call BIN_TO_DEC
+    
+    ; Mostrar en LCD
+    movlw 0xCA       
+    call LCD_CMD
+    
+    movf centena, W
+    addlw '0'
+    call LCD_CHAR
+    
+    movf decena, W
+    addlw '0'
+    call LCD_CHAR
+    
+    movf unidad, W
+    addlw '0'
+    call LCD_CHAR
+    
+    ; Retardo antes de nueva lectura
+    call DELAY_100MS
+    goto MAIN_LOOP
+
+; CONVERSIÓN BINARIO A DECIMAL 
+BIN_TO_DEC:
+    movf valor_adc, W
+    movwf temp
+    clrf centena
+    clrf decena
+    clrf unidad
+
+CENTENAS:
+    movlw .100
+    subwf temp, W
+    btfss STATUS, C
+    goto DECENAS
+    movwf temp
+    incf centena, F
+    goto CENTENAS
+
+DECENAS:
+    movlw .10
+    subwf temp, W
+    btfss STATUS, C
+    goto UNIDADES
+    movwf temp
+    incf decena, F
+    goto DECENAS
+
+UNIDADES:
+    movf temp, W
+    movwf unidad
+    return
+
+; RUTINAS LCD
+LCD_INIT:
+    call DELAY_20MS
+    
+    ; Modo 8 bits
+    movlw 0x30
+    call LCD_CMD
+    call DELAY_5MS
+    call LCD_CMD
+    call DELAY_100US
+    call LCD_CMD
+    call DELAY_100US
+    
+    ; Function set: 8-bit, 2 lines, 5x8 dots
+    movlw 0x38
+    call LCD_CMD
+    call DELAY_100US
+    
+    ; Display on/off control: display on, cursor off, blink off
+    movlw 0x0C
+    call LCD_CMD
+    call DELAY_100US
+    
+    ; Clear display
+    movlw 0x01
+    call LCD_CMD
+    call DELAY_2MS
+    
+    ; Entry mode set: increment, no shift
+    movlw 0x06
+    call LCD_CMD
+    call DELAY_100US
+    
+    return
+
+LCD_CMD:
+    movwf lcd_dato
+    bcf LCD_RS        
+    movf lcd_dato, W
+    movwf LCD_PORT
+    bsf LCD_E         
+    nop
+    nop
+    bcf LCD_E         
+    call DELAY_100US
+    return
+
+LCD_CHAR:
+    movwf lcd_dato
+    bsf LCD_RS        
+    movf lcd_dato, W
+    movwf LCD_PORT
+    bsf LCD_E         
+    nop
+    nop
+    bcf LCD_E         
+    call DELAY_100US
+    return
+
+; RUTINAS DE RETARDO
+DELAY_20MS:
+    movlw .200
+    movwf counter1
+DELAY_20MS_1:
+    call DELAY_100US
+    decfsz counter1, F
+    goto DELAY_20MS_1
+    return
+
+DELAY_5MS:
+    movlw .50
+    movwf counter1
+DELAY_5MS_1:
+    call DELAY_100US
+    decfsz counter1, F
+    goto DELAY_5MS_1
+    return
+
+DELAY_2MS:
+    movlw .20
+    movwf counter1
+DELAY_2MS_1:
+    call DELAY_100US
+    decfsz counter1, F
+    goto DELAY_2MS_1
+    return
+
+DELAY_100MS:
+    movlw .100
+    movwf counter2
+DELAY_100MS_1:
+    call DELAY_1MS
+    decfsz counter2, F
+    goto DELAY_100MS_1
+    return
+
+DELAY_1MS:
+    movlw .10
+    movwf counter1
+DELAY_1MS_1:
+    call DELAY_100US
+    decfsz counter1, F
+    goto DELAY_1MS_1
+    return
+
+DELAY_100US:
+    movlw .50
+    movwf counter3
+DELAY_100US_1:
+    nop
+    decfsz counter3, F
+    goto DELAY_100US_1
+    return
+
+RETARDO_20us:
+    movlw .10
+    movwf counter3
+RETARDO_20us_1:
+    nop
+    decfsz counter3, F
+    goto RETARDO_20us_1
+    return
+
+end
