@@ -1,0 +1,146 @@
+
+    LIST P=16F887
+    #INCLUDE <P16F887.INC>
+    
+    ; Configuración correcta para el PIC16F887
+    __CONFIG _CONFIG1, _XT_OSC & _WDT_OFF & _PWRTE_ON & _MCLRE_ON & _CP_OFF
+
+; Variables
+    CBLOCK 0x20
+        ADC_VAL
+        LED_DUTY
+        LED_DIR
+        CONTADOR
+        DELAY_TEMP
+    ENDC
+
+; Vector de reset
+    ORG 0x0000
+    GOTO INICIO
+
+; Programa principal
+INICIO:
+    ; Limpiar puertos
+    CLRF    PORTA
+    CLRF    PORTB
+    CLRF    PORTC
+    
+    ; Configurar TRIS - banco 1
+    BANKSEL TRISA
+    MOVLW   b'00000001'     ; RA0 como entrada
+    MOVWF   TRISA
+    CLRF    TRISB           ; PORTB salidas
+    CLRF    TRISC           ; PORTC salidas
+    
+    ; Configurar ANSEL - banco 3
+    BANKSEL ANSEL
+    MOVLW   b'00000001'     ; AN0 analógico
+    MOVWF   ANSEL
+    CLRF    ANSELH
+    
+    ; Configurar ADC - banco 1
+    BANKSEL ADCON1
+    MOVLW   b'00000000'     ; Justificado izquierda
+    MOVWF   ADCON1
+    
+    ; Configurar ADC - banco 0
+    BANKSEL ADCON0
+    MOVLW   b'10000001'     ; ADC ON, Fosc/32, canal AN0
+    MOVWF   ADCON0
+    
+    ; Configurar PWM - banco 2
+    BANKSEL PR2
+    MOVLW   .249            ; Periodo para 4MHz
+    MOVWF   PR2
+    
+    ; Configurar CCP1 (Motor) - banco 0
+    BANKSEL CCP1CON
+    MOVLW   b'00001100'     ; Modo PWM
+    MOVWF   CCP1CON
+    
+    ; Configurar CCP2 (LED) - banco 0  
+    BANKSEL CCP2CON
+    MOVLW   b'00001100'     ; Modo PWM
+    MOVWF   CCP2CON
+    
+    ; Timer2 ON con prescaler 4 - banco 0
+    BANKSEL T2CON
+    MOVLW   b'00000101'
+    MOVWF   T2CON
+    
+    ; Variables iniciales
+    BANKSEL PORTA
+    CLRF    LED_DUTY
+    CLRF    LED_DIR
+    MOVLW   .127
+    MOVWF   LED_DUTY
+
+; Loop principal
+MAIN:
+    ; 1. Leer potenciómetro para el MOTOR
+    BANKSEL ADCON0
+    BSF     ADCON0, GO_DONE
+ESPERA_ADC:
+    BTFSC   ADCON0, GO_DONE
+    GOTO    ESPERA_ADC
+    
+    ; Leer resultado ADC
+    MOVF    ADRESH, W
+    BANKSEL ADC_VAL
+    MOVWF   ADC_VAL
+    
+    ; Aplicar al MOTOR (CCP1)
+    BANKSEL CCPR1L
+    MOVWF   CCPR1L
+    
+    ; 2. Efecto LED (CCP2) - sube y baja
+    BANKSEL LED_DUTY
+    BTFSS   LED_DIR, 0
+    GOTO    SUBIR_LED
+    
+BAJAR_LED:
+    DECF    LED_DUTY, F
+    MOVF    LED_DUTY, W
+    XORLW   .10
+    BTFSS   STATUS, Z
+    GOTO    APLICAR_LED
+    BCF     LED_DIR, 0      ; Llegó a 10, cambiar a subir
+    GOTO    APLICAR_LED
+    
+SUBIR_LED:
+    INCF    LED_DUTY, F
+    MOVF    LED_DUTY, W
+    XORLW   .250
+    BTFSS   STATUS, Z
+    GOTO    APLICAR_LED
+    BSF     LED_DIR, 0      ; Llegó a 250, cambiar a bajar
+
+APLICAR_LED:
+    MOVF    LED_DUTY, W
+    BANKSEL CCPR2L
+    MOVWF   CCPR2L
+    
+    ; 3. Delay
+    CALL    DELAY_GRANDE
+    
+    GOTO    MAIN
+
+; Delay
+DELAY_GRANDE:
+    MOVLW   .10
+    MOVWF   CONTADOR
+DELAY_EXT:
+    CALL    DELAY_PEQ
+    DECFSZ  CONTADOR, F
+    GOTO    DELAY_EXT
+    RETURN
+
+DELAY_PEQ:
+    MOVLW   .100
+    MOVWF   DELAY_TEMP
+DELAY_LOOP:
+    DECFSZ  DELAY_TEMP, F
+    GOTO    DELAY_LOOP
+ RETURN 
+
+END
